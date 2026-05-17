@@ -10,6 +10,7 @@ from alpha_listener.classify import (
     decode_string_result,
     decode_uint_result,
     is_liquidity_pool_artifact,
+    supports_interface_data,
 )
 from alpha_listener.discovery import (
     build_internal_contract,
@@ -104,6 +105,61 @@ class DecodeAndScoringTests(unittest.TestCase):
 
         contract = classify_contract(FakeClient(), "0x1111111111111111111111111111111111111111")
         self.assertEqual(contract["source"]["urls"], ["https://moltenbear.xyz"])
+
+    def test_supports_interface_data_left_aligns_bytes4(self):
+        self.assertEqual(
+            supports_interface_data("80ac58cd"),
+            "0x01ffc9a7" + "80ac58cd".ljust(64, "0"),
+        )
+
+    def test_classify_contract_detects_erc721_from_supports_interface(self):
+        def encoded_string(text):
+            body = text.encode("utf-8").hex()
+            padding = "0" * ((64 - len(body) % 64) % 64)
+            return "0x" + f"{32:064x}" + f"{len(text):064x}" + body + padding
+
+        class FakeClient:
+            def eth_call(self, _address, data):
+                if data == "0x06fdde03":
+                    return encoded_string("Mergeable Rectangles")
+                if data == "0x95d89b41":
+                    return encoded_string("MRECT")
+                if data == "0x18160ddd":
+                    return "0x" + f"{10000:064x}"
+                if data == supports_interface_data("80ac58cd"):
+                    return "0x" + f"{1:064x}"
+                return "0x" + "0" * 64
+
+            def get_source_code(self, _address):
+                return {
+                    "SourceCode": "contract MergeableRectangles is ERC721 {}",
+                    "ContractName": "MergeableRectangles",
+                    "ABI": "[]",
+                    "CompilerVersion": "v0.8.33",
+                }
+
+        contract = classify_contract(FakeClient(), "0x0e74363bba068f2a9ce31aa035a0610b020ab41a")
+        self.assertEqual(contract["kind"], "erc721")
+        self.assertEqual(contract["name"], "Mergeable Rectangles")
+        self.assertEqual(contract["symbol"], "MRECT")
+
+    def test_classify_contract_detects_erc1155_from_supports_interface(self):
+        class FakeClient:
+            def eth_call(self, _address, data):
+                if data == supports_interface_data("d9b67a26"):
+                    return "0x" + f"{1:064x}"
+                return "0x" + "0" * 64
+
+            def get_source_code(self, _address):
+                return {
+                    "SourceCode": "contract AlphaItems is ERC1155 {}",
+                    "ContractName": "AlphaItems",
+                    "ABI": "[]",
+                    "CompilerVersion": "v0.8.24",
+                }
+
+        contract = classify_contract(FakeClient(), "0x1111111111111111111111111111111111111111")
+        self.assertEqual(contract["kind"], "erc1155")
 
     def test_score_high_identity_token(self):
         contract = {

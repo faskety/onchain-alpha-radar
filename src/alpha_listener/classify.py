@@ -91,7 +91,11 @@ def decode_bool_result(raw: str | None) -> bool:
 
 
 def supports_interface_data(interface_id: str) -> str:
-    return SELECTOR_SUPPORTS_INTERFACE + interface_id.rjust(64, "0")
+    normalized = interface_id.lower().removeprefix("0x")
+    if len(normalized) != 8 or any(ch not in string.hexdigits for ch in normalized):
+        raise ValueError(f"invalid ERC165 interface id: {interface_id}")
+    # ABI bytes4 arguments are left-aligned in their 32-byte slot.
+    return SELECTOR_SUPPORTS_INTERFACE + normalized.ljust(64, "0")
 
 
 def classify_contract(client: EtherscanClient, address: str) -> dict[str, Any]:
