@@ -71,6 +71,39 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("Test Alpha", text)
             json.loads(text.split("window.DASHBOARD_PROJECTS = ", 1)[1].split(";\n", 1)[0])
 
+    def test_dashboard_payload_marks_stale_background_workers(self):
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            data_dir = workspace / "data" / "base"
+            store = Store(data_dir / "alpha.sqlite", data_dir)
+            try:
+                old_time = "2000-01-01T00:00:00+00:00"
+                store.set_meta("last_scanned_block", 100)
+                store.set_meta("last_cycle_scanner_started_at", old_time)
+                store.set_meta("last_cycle_scanner_progressed_at", old_time)
+                store.set_meta("last_cycle_scanner_status", "running")
+                store.set_meta_json(
+                    "last_cycle_scanner_context_json",
+                    {
+                        "command": "once",
+                        "max_blocks": 300,
+                        "enrich_limit": 0,
+                        "started_at": old_time,
+                    },
+                )
+            finally:
+                store.close()
+
+            payload = build_dashboard_payload(workspace, limit=10)
+            base = payload["chains"]["base"]
+            worker = next(w for w in payload["meta"]["workers"] if w["id"] == "base-scanner")
+
+            self.assertEqual(base["runtimeStatus"], "stale")
+            self.assertEqual(worker["status"], "stale")
+            self.assertTrue(worker["background"])
+            self.assertGreater(payload["meta"]["workerSummary"]["stale"], 0)
+            self.assertGreater(payload["meta"]["chainHealth"]["stale"], 0)
+
     def test_dashboard_settings_mask_reveal_and_save_env(self):
         with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
             workspace = Path(tmp)

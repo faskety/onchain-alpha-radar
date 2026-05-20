@@ -283,6 +283,19 @@ a:hover { text-decoration-color: var(--accent); }
   font-size: 10.5px;
   color: var(--ink-50);
 }
+.chain-health {
+  font-size: 10px;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--ink-60);
+  border: 1px solid var(--line);
+  background: var(--bg-sunk);
+  padding: 4px 7px;
+}
+.chain-health-active { color: var(--color-tier-high); border-color: color-mix(in oklch, var(--color-tier-high) 40%, var(--line)); }
+.chain-health-stale { color: var(--color-tier-watch); border-color: color-mix(in oklch, var(--color-tier-watch) 45%, var(--line)); }
+.chain-health-failed { color: var(--color-tier-medium); border-color: color-mix(in oklch, var(--color-tier-medium) 45%, var(--line)); }
+.chain-health-idle { color: var(--ink-40); }
 .chain-card-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1103,7 +1116,12 @@ a:hover { text-decoration-color: var(--accent); }
   display: inline-block;
 }
 .worker-dot-running { background: var(--color-tier-high); box-shadow: 0 0 0 0 var(--color-tier-high); animation: pulse 2s infinite; }
-.worker-dot-stopped { background: var(--ink-30); }
+.worker-dot-ok { background: var(--color-tier-high); }
+.worker-dot-stale { background: var(--color-tier-watch); }
+.worker-dot-failed { background: var(--color-tier-medium); }
+.worker-dot-stopped,
+.worker-dot-idle,
+.worker-dot-unknown { background: var(--ink-30); }
 .worker-actions { display: flex; gap: 6px; }
 .worker-grid {
   display: grid;

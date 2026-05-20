@@ -1,4 +1,4 @@
-/* global React, fmt, sentenceCase, KPI, ChainPill, ChainFilter, useT,
+/* global React, fmt, sentenceCase, KPI, ChainPill, ChainFilter, useT, localStatus,
    Sparkline, Histogram, Donut, LineChart, Heatmap, Gauge, StackedBar, Funnel */
 const { useState: useStateDisc } = React;
 
@@ -259,7 +259,7 @@ function WorkersPane({ meta }) {
             </div>
             <div className="worker-grid">
               <div><span className="worker-label">{t("work.pid")}</span><span className="worker-val mono">{w.pid ?? "—"}</span></div>
-              <div><span className="worker-label">{t("work.status")}</span><span className="worker-val">{w.status}</span></div>
+              <div><span className="worker-label">{t("work.status")}</span><span className="worker-val">{localStatus(t, w.status)}</span></div>
               <div><span className="worker-label">{t("work.lastCycle")}</span><span className="worker-val mono">{w.lastCycle.replace("T", " ").replace("Z", "")}</span></div>
               <div><span className="worker-label">{t("work.notes")}</span><span className="worker-val">{w.notes}</span></div>
             </div>

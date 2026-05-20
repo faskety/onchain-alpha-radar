@@ -21,6 +21,7 @@ DASHBOARD_CHAINS = ("ethereum", "base", "bsc")
 CHAIN_SHORT_NAMES = {"ethereum": "ETH", "base": "BASE", "bsc": "BSC"}
 DATA_JS_NAME = "data.js"
 SECRET_MASK = "****"
+BACKGROUND_WORKER_ROLES = {"scanner", "classifier", "enricher", "combined"}
 
 CHAIN_ENV_PREFIX = {"ethereum": "ETHEREUM", "base": "BASE", "bsc": "BSC"}
 PER_CHAIN_ENV_FIELDS = {
@@ -111,6 +112,8 @@ def build_dashboard_payload(workspace: Path, limit: int = 100) -> dict[str, Any]
         "meta": {
             "generatedAt": utc_now(),
             "workers": workers,
+            "workerSummary": worker_summary(workers),
+            "chainHealth": chain_health_summary(chain_payloads),
             "queueBuckets": aggregate_queue_buckets(queues),
             "events": events[:50],
         },
@@ -190,6 +193,7 @@ def chain_payload(
         lag = max(0, safe_latest - last_scanned)
     elif isinstance(last_scanned, int) and isinstance(latest, int):
         lag = max(0, latest - settings.confirmations - last_scanned)
+    runtime_health = chain_runtime_health(settings, runtime)
     return {
         "id": settings.chain_slug,
         "label": settings.chain_name,
@@ -212,6 +216,7 @@ def chain_payload(
         "maxBlocksPerCycle": settings.max_blocks_per_cycle,
         "lookbackBlocks": settings.lookback_blocks,
         "tiers": dict(summary.get("by_tier") or {}),
+        **runtime_health,
     }
 
 
@@ -321,26 +326,148 @@ def event_text(event_type: str, address: str | None, payload: dict[str, Any]) ->
 def worker_payloads(settings: Settings, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     roles = runtime.get("roles") if isinstance(runtime.get("roles"), dict) else {}
     result = []
+    now = datetime.now(timezone.utc)
     for role, state in sorted(roles.items()):
-        last_cycle = (
-            state.get("last_cycle_progressed_at")
-            or state.get("last_cycle_finished_at")
-            or state.get("last_cycle_started_at")
-            or ""
-        )
+        last_cycle = runtime_active_at(state)
+        raw_status = str(state.get("last_cycle_status") or "unknown")
+        background = role in BACKGROUND_WORKER_ROLES
+        pid = pid_for_role(settings, role)
+        age_seconds = runtime_age_seconds(last_cycle, now)
+        stale_after_seconds = role_stale_after_seconds(settings, raw_status, background)
+        stale = background and age_seconds is not None and age_seconds > stale_after_seconds
+        status = dashboard_worker_status(raw_status, pid, background, stale)
         result.append(
             {
                 "id": f"{settings.chain_slug}-{role}",
                 "name": f"{settings.chain_name} {role}",
                 "chain": settings.chain_slug,
-                "pid": pid_for_role(settings, role),
-                "status": state.get("last_cycle_status") or "unknown",
+                "pid": pid,
+                "status": status,
+                "rawStatus": raw_status,
                 "lastCycle": last_cycle,
                 "role": role,
+                "background": background,
+                "ageSeconds": age_seconds,
+                "staleAfterSeconds": stale_after_seconds if background else None,
                 "notes": worker_notes(state),
             }
         )
     return result
+
+
+def dashboard_worker_status(raw_status: str, pid: int | None, background: bool, stale: bool) -> str:
+    if stale:
+        return "stale"
+    if raw_status == "failed":
+        return "failed"
+    if background and pid is not None and raw_status in {"ok", "running"}:
+        return "running"
+    return raw_status or "unknown"
+
+
+def runtime_active_at(state: dict[str, Any]) -> str:
+    raw_status = str(state.get("last_cycle_status") or "")
+    if raw_status == "running":
+        return (
+            str(state.get("last_cycle_progressed_at") or "")
+            or str(state.get("last_cycle_started_at") or "")
+            or str(state.get("last_cycle_finished_at") or "")
+        )
+    return (
+        str(state.get("last_cycle_finished_at") or "")
+        or str(state.get("last_cycle_progressed_at") or "")
+        or str(state.get("last_cycle_started_at") or "")
+    )
+
+
+def role_stale_after_seconds(settings: Settings, raw_status: str, background: bool) -> int:
+    if not background:
+        return 0
+    runtime_threshold = max(1, int(settings.runtime_stale_minutes or 30)) * 60
+    if raw_status == "running":
+        return runtime_threshold
+    cycle_threshold = max(1, int(settings.interval_seconds or 0)) * 2
+    return max(runtime_threshold, cycle_threshold)
+
+
+def runtime_age_seconds(value: Any, now: datetime) -> int | None:
+    dt = parse_dt(value)
+    if not dt:
+        return None
+    return max(0, int((now - dt).total_seconds()))
+
+
+def chain_runtime_health(settings: Settings, runtime: dict[str, Any]) -> dict[str, Any]:
+    roles = runtime.get("roles") if isinstance(runtime.get("roles"), dict) else {}
+    now = datetime.now(timezone.utc)
+    role_states = []
+    for role, state in roles.items():
+        if role not in BACKGROUND_WORKER_ROLES:
+            continue
+        last_cycle = runtime_active_at(state)
+        raw_status = str(state.get("last_cycle_status") or "unknown")
+        age_seconds = runtime_age_seconds(last_cycle, now)
+        stale_after_seconds = role_stale_after_seconds(settings, raw_status, True)
+        stale = age_seconds is not None and age_seconds > stale_after_seconds
+        status = dashboard_worker_status(raw_status, pid_for_role(settings, role), True, stale)
+        role_states.append(
+            {
+                "status": status,
+                "raw_status": raw_status,
+                "last_cycle": last_cycle,
+                "age_seconds": age_seconds,
+            }
+        )
+
+    if not role_states:
+        return {
+            "runtimeStatus": "idle",
+            "lastRuntimeAt": None,
+            "runtimeAgeSeconds": None,
+        }
+
+    latest = min(
+        (state for state in role_states if state["age_seconds"] is not None),
+        key=lambda state: int(state["age_seconds"]),
+        default=None,
+    )
+    statuses = {str(state["status"]) for state in role_states}
+    if "running" in statuses or "ok" in statuses:
+        status = "active"
+    elif "failed" in statuses:
+        status = "failed"
+    elif "stale" in statuses:
+        status = "stale"
+    else:
+        status = "idle"
+    return {
+        "runtimeStatus": status,
+        "lastRuntimeAt": latest["last_cycle"] if latest else None,
+        "runtimeAgeSeconds": latest["age_seconds"] if latest else None,
+    }
+
+
+def worker_summary(workers: list[dict[str, Any]]) -> dict[str, int]:
+    background = [worker for worker in workers if worker.get("background")]
+    return {
+        "total": len(background),
+        "running": sum(1 for worker in background if worker.get("status") == "running"),
+        "ok": sum(1 for worker in background if worker.get("status") == "ok"),
+        "stale": sum(1 for worker in background if worker.get("status") == "stale"),
+        "failed": sum(1 for worker in background if worker.get("status") == "failed"),
+    }
+
+
+def chain_health_summary(chains: dict[str, dict[str, Any]]) -> dict[str, int]:
+    values = list(chains.values())
+    return {
+        "total": len(values),
+        "active": sum(1 for chain in values if chain.get("runtimeStatus") == "active"),
+        "stale": sum(1 for chain in values if chain.get("runtimeStatus") == "stale"),
+        "failed": sum(1 for chain in values if chain.get("runtimeStatus") == "failed"),
+        "idle": sum(1 for chain in values if chain.get("runtimeStatus") == "idle"),
+        "pending": sum(int(chain.get("pending") or 0) for chain in values),
+    }
 
 
 def worker_notes(state: dict[str, Any]) -> str:

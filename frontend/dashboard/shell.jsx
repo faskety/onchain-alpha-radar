@@ -40,6 +40,13 @@ const localReview = (t, decision) => {
   return v === k ? decision.replace("_", " ") : v;
 };
 
+const localStatus = (t, status) => {
+  const value = status || "unknown";
+  const k = "status." + value;
+  const v = t(k);
+  return v === k ? value : v;
+};
+
 /* ─── chain pill (tone per chain) ──────────────────────────────────── */
 function ChainPill({ chain, size = "md" }) {
   if (!chain) return null;
@@ -204,5 +211,5 @@ function ChainFilter({ value, onChange, chains, counts }) {
 Object.assign(window, {
   TopBar, Sidebar, tierDot, fmt, shortAddr, sentenceCase,
   TIER_DOT, ChainPill, AddressCell, ChainFilter, LangToggle,
-  localCategory, localTier, localReview,
+  localCategory, localTier, localReview, localStatus,
 });

@@ -1,6 +1,6 @@
 /* global React, fmt, sentenceCase, tierDot, ChainPill, AddressCell, ChainFilter,
    HeaderCell, Sparkline, Histogram, Donut, Funnel, Heatmap, Gauge, StackedBar, LineChart,
-   useT, localCategory, localTier, localReview */
+   useT, localCategory, localTier, localReview, localStatus */
 const { useMemo: useMemoOv, useState: useStateOv } = React;
 
 const tierRankOv = { high: 0, medium: 1, watch: 2, low: 3 };
@@ -36,6 +36,9 @@ function ChainCard({ chain, sparkValues }) {
         <ChainPill chain={c.id} />
         <span className="chain-card-name">{c.label}</span>
         <span className="chain-card-meta mono">id {c.chainId}</span>
+        <span className={"chain-health chain-health-" + (c.runtimeStatus || "idle")}>
+          {localStatus(t, c.runtimeStatus || "idle")}
+        </span>
       </div>
       <div className="chain-card-grid">
         <div>
@@ -164,6 +167,25 @@ function OverviewPane({ meta, chains, projects, onJumpToCandidates }) {
       observations: arr.reduce((s, c) => s + c.observations, 0),
     };
   }, [chains]);
+  const chainHealth = meta.chainHealth || {
+    total: Object.keys(chains).length,
+    active: Object.values(chains).filter((c) => c.runtimeStatus === "active").length,
+    stale: Object.values(chains).filter((c) => c.runtimeStatus === "stale").length,
+    pending: totals.pending,
+  };
+  const workerSummary = meta.workerSummary || {
+    total: meta.workers.length,
+    running: meta.workers.filter((w) => w.status === "running").length,
+    stale: meta.workers.filter((w) => w.status === "stale").length,
+  };
+  const chainHealthSub = [
+    chainHealth.stale ? fmt(chainHealth.stale) + " " + localStatus(t, "stale") : null,
+    fmt(chainHealth.pending ?? totals.pending) + " " + t("ov.pending"),
+  ].filter(Boolean).join(" / ");
+  const workerSub = [
+    workerSummary.stale ? fmt(workerSummary.stale) + " " + localStatus(t, "stale") : null,
+    t("ov.backgroundProcesses"),
+  ].filter(Boolean).join(" / ");
 
   const confirmed = projects.filter((p) => p.review && p.review.decision === "confirmed").length;
   const funnelStages = [
@@ -207,8 +229,8 @@ function OverviewPane({ meta, chains, projects, onJumpToCandidates }) {
         <KPI label={t("ov.mediumHigh")} value={fmt(totals.mediumHigh)} sub={t("ov.readyReview")} accent="var(--accent)" trend={ts.mediumHigh} />
         <KPI label={t("ov.contracts")}  value={fmt(totals.contracts)}  sub={fmt(totals.observations) + " " + t("ov.observations")} trend={ts.ethereum.map((v,i)=>v+ts.base[i]+ts.bsc[i])} />
         <KPI label={t("ov.enriched")}   value={fmt(totals.enriched)}   sub={fmt(totals.pending) + " " + t("ov.pending")} />
-        <KPI label={t("ov.chainsLive")} value={Object.keys(chains).length + " / 3"} sub="ethereum · base · bsc" />
-        <KPI label={t("ov.workers")}    value={meta.workers.filter(w => w.status === "running").length + " / " + meta.workers.length} sub={t("ov.backgroundProcesses")} />
+        <KPI label={t("ov.chainsLive")} value={fmt(chainHealth.active) + " / " + fmt(chainHealth.total)} sub={chainHealthSub} />
+        <KPI label={t("ov.workers")}    value={fmt(workerSummary.running) + " / " + fmt(workerSummary.total)} sub={workerSub} />
       </section>
 
       {/* ─── 2. Chain cards ──────────────────────────────────── */}
