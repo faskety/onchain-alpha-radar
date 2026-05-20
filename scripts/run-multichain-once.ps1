@@ -1,9 +1,9 @@
 param(
   [string[]]$Chains = @("base", "bsc"),
   [int]$ScanMaxBlocks = 0,
-  [int]$BaseScanMaxBlocks = 90,
+  [int]$BaseScanMaxBlocks = 30,
   [int]$BscScanMaxBlocks = 0,
-  [int]$MaxCatchupBatches = 10,
+  [int]$MaxCatchupBatches = 30,
   [int]$ClassifyLimit = 50,
   [int]$EnrichLimit = 10,
   [int]$ReportLimit = 50,
