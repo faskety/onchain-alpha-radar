@@ -12,6 +12,8 @@ param(
   [switch]$WithMultichain,
   [int]$MultichainIntervalSeconds = 1800,
   [int]$MultichainScanMaxBlocks = 0,
+  [int]$MultichainBaseScanMaxBlocks = 90,
+  [int]$MultichainBscScanMaxBlocks = 0,
   [int]$MultichainMaxCatchupBatches = 10,
   [int]$MultichainEnrichLimit = 10,
   [switch]$SkipDashboard,
@@ -56,6 +58,8 @@ if ($WithMultichain) {
   & (Join-Path $PSScriptRoot "start-background-multichain.ps1") `
     -IntervalSeconds $MultichainIntervalSeconds `
     -ScanMaxBlocks $MultichainScanMaxBlocks `
+    -BaseScanMaxBlocks $MultichainBaseScanMaxBlocks `
+    -BscScanMaxBlocks $MultichainBscScanMaxBlocks `
     -MaxCatchupBatches $MultichainMaxCatchupBatches `
     -EnrichLimit $MultichainEnrichLimit
 }

@@ -1,6 +1,8 @@
 param(
   [string[]]$Chains = @("base", "bsc"),
   [int]$ScanMaxBlocks = 0,
+  [int]$BaseScanMaxBlocks = 90,
+  [int]$BscScanMaxBlocks = 0,
   [int]$MaxCatchupBatches = 10,
   [int]$ClassifyLimit = 50,
   [int]$EnrichLimit = 10,
@@ -15,6 +17,20 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:PYTHONPATH = Join-Path $root "src"
+
+function Get-ChainScanMaxBlocks {
+  param([string]$Chain)
+  if ($ScanMaxBlocks -gt 0) {
+    return $ScanMaxBlocks
+  }
+  if ($Chain -eq "base" -and $BaseScanMaxBlocks -gt 0) {
+    return $BaseScanMaxBlocks
+  }
+  if (($Chain -eq "bsc" -or $Chain -eq "bnb") -and $BscScanMaxBlocks -gt 0) {
+    return $BscScanMaxBlocks
+  }
+  return 0
+}
 
 $remainingByChain = @{}
 $scanRounds = [Math]::Max(1, $MaxCatchupBatches)
@@ -34,8 +50,9 @@ for ($catchupBatch = 0; $catchupBatch -lt $scanRounds; $catchupBatch += 1) {
       "--enrich-limit", "0",
       "--report-limit", "0"
     )
-    if ($ScanMaxBlocks -gt 0) {
-      $scanArgs += @("--max-blocks", $ScanMaxBlocks)
+    $chainScanMaxBlocks = Get-ChainScanMaxBlocks -Chain $chain
+    if ($chainScanMaxBlocks -gt 0) {
+      $scanArgs += @("--max-blocks", $chainScanMaxBlocks)
     }
     $scanOutput = python -m alpha_listener.cli once @scanArgs
     $scanText = $scanOutput -join [Environment]::NewLine

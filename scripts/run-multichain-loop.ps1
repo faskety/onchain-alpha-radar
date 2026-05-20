@@ -2,6 +2,8 @@ param(
   [string[]]$Chains = @("base", "bsc"),
   [int]$IntervalSeconds = 1800,
   [int]$ScanMaxBlocks = 0,
+  [int]$BaseScanMaxBlocks = 90,
+  [int]$BscScanMaxBlocks = 0,
   [int]$MaxCatchupBatches = 10,
   [int]$ClassifyLimit = 50,
   [int]$EnrichLimit = 10,
@@ -21,6 +23,8 @@ while ($true) {
     & (Join-Path $PSScriptRoot "run-multichain-once.ps1") `
       -Chains $Chains `
       -ScanMaxBlocks $ScanMaxBlocks `
+      -BaseScanMaxBlocks $BaseScanMaxBlocks `
+      -BscScanMaxBlocks $BscScanMaxBlocks `
       -MaxCatchupBatches $MaxCatchupBatches `
       -ClassifyLimit $ClassifyLimit `
       -EnrichLimit $EnrichLimit `
