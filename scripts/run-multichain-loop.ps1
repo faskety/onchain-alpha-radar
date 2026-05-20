@@ -17,6 +17,28 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Normalize-Chains {
+  param([string[]]$Values)
+
+  $normalized = @()
+  foreach ($value in @($Values)) {
+    foreach ($part in ($value -split ",")) {
+      $chain = $part.Trim()
+      if ($chain) {
+        $normalized += $chain
+      }
+    }
+  }
+  return $normalized
+}
+
+$Chains = @(Normalize-Chains -Values $Chains)
+if ($Chains.Count -eq 0) {
+  throw "At least one chain is required."
+}
+
+Write-Output "multichain loop chains=$($Chains -join ',') interval_seconds=$IntervalSeconds scan_max_blocks=$ScanMaxBlocks base_scan_max_blocks=$BaseScanMaxBlocks bsc_scan_max_blocks=$BscScanMaxBlocks max_catchup_batches=$MaxCatchupBatches"
+
 while ($true) {
   $started = Get-Date
   try {

@@ -18,6 +18,21 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:PYTHONPATH = Join-Path $root "src"
 
+function Normalize-Chains {
+  param([string[]]$Values)
+
+  $normalized = @()
+  foreach ($value in @($Values)) {
+    foreach ($part in ($value -split ",")) {
+      $chain = $part.Trim()
+      if ($chain) {
+        $normalized += $chain
+      }
+    }
+  }
+  return $normalized
+}
+
 function Get-ChainScanMaxBlocks {
   param([string]$Chain)
   if ($ScanMaxBlocks -gt 0) {
@@ -31,6 +46,13 @@ function Get-ChainScanMaxBlocks {
   }
   return 0
 }
+
+$Chains = @(Normalize-Chains -Values $Chains)
+if ($Chains.Count -eq 0) {
+  throw "At least one chain is required."
+}
+
+Write-Output "multichain once chains=$($Chains -join ',') scan_max_blocks=$ScanMaxBlocks base_scan_max_blocks=$BaseScanMaxBlocks bsc_scan_max_blocks=$BscScanMaxBlocks max_catchup_batches=$MaxCatchupBatches"
 
 $remainingByChain = @{}
 $scanRounds = [Math]::Max(1, $MaxCatchupBatches)

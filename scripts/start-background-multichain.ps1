@@ -34,7 +34,7 @@ if (Test-Path $pidFile) {
 $stdout = Join-Path $logs "alpha-multichain.out.log"
 $stderr = Join-Path $logs "alpha-multichain.err.log"
 $script = Join-Path $PSScriptRoot "run-multichain-loop.ps1"
-$chainArgs = @("-Chains") + $Chains
+$chainArgs = @("-Chains", ($Chains -join ","))
 $arguments = @(
   "-NoProfile",
   "-ExecutionPolicy",
@@ -82,5 +82,6 @@ $process = Start-Process -FilePath "powershell.exe" `
 
 Set-Content -Path $pidFile -Value $process.Id -Encoding ASCII
 Write-Output "alpha-multichain started pid=$($process.Id)"
+Write-Output "chains=$($Chains -join ',') base_scan_max_blocks=$BaseScanMaxBlocks bsc_scan_max_blocks=$BscScanMaxBlocks max_catchup_batches=$MaxCatchupBatches"
 Write-Output "stdout=$stdout"
 Write-Output "stderr=$stderr"
