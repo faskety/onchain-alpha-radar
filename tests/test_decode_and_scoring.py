@@ -4086,6 +4086,71 @@ class DecodeAndScoringTests(unittest.TestCase):
             self.assertFalse(runtime["detail"]["roles"]["maintenance"]["code_fingerprint_required"])
             self.assertFalse(runtime["detail"]["roles"]["maintenance"]["code_fingerprint_stale"])
 
+    def test_runtime_interrupt_clears_running_role_without_stale_code_failure(self):
+        from alpha_listener.cli import handle_audit, handle_runtime_interrupt
+        from alpha_listener.config import Settings
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src" / "alpha_listener").mkdir(parents=True)
+            (root / "src" / "alpha_listener" / "cli.py").write_text("print('new')\n", encoding="utf-8")
+            store = Store(root / "alpha.sqlite", root)
+            store.record_cycle_started(
+                {
+                    "command": "run",
+                    "code_fingerprint": {"algorithm": "sha256", "digest": "0" * 64, "files": 1},
+                },
+                role="scanner",
+            )
+            store.close()
+
+            settings = Settings(
+                workspace=root,
+                chainid="1",
+                etherscan_api_base="https://example.invalid",
+                etherscan_api_key="etherscan-key",
+                opentwitter_api_base="https://example.invalid",
+                opentwitter_api_key="twitter-key",
+                data_dir=root,
+                db_path=root / "alpha.sqlite",
+                confirmations=6,
+                interval_seconds=300,
+                lookback_blocks=10,
+                max_blocks_per_cycle=10,
+                enrich_limit_per_cycle=5,
+                report_limit_per_cycle=0,
+                report_every_enriched=10,
+                twitter_max_results=10,
+                max_log_candidates_per_block=25,
+                max_internal_candidates_per_block=50,
+                new_contract_max_age_blocks=7200,
+                request_timeout_seconds=1,
+            )
+            interrupted = handle_runtime_interrupt(
+                settings,
+                SimpleNamespace(role="scanner", reason="background_stop", pid=123, force=False),
+            )
+            result = handle_audit(
+                settings,
+                SimpleNamespace(
+                    no_live=True,
+                    confirmations=None,
+                    coverage_window_blocks=3,
+                    max_lag_blocks=None,
+                    runtime_stale_minutes=1,
+                    min_alpha_candidates=1,
+                    limit=5,
+                ),
+            )
+
+            runtime = result["checks"]["runtime"]
+            self.assertTrue(interrupted["interrupted"])
+            self.assertEqual(runtime["status"], "warn")
+            self.assertEqual(runtime["detail"]["failed_roles"], [])
+            self.assertEqual(runtime["detail"]["stale_code_fingerprint_roles"], [])
+            self.assertEqual(runtime["detail"]["roles"]["scanner"]["last_cycle_status"], "interrupted")
+            self.assertEqual(runtime["detail"]["roles"]["scanner"]["last_cycle_result"]["reason"], "background_stop")
+
     def test_audit_fails_dead_background_pid(self):
         from alpha_listener.cli import handle_audit
         from alpha_listener.config import Settings

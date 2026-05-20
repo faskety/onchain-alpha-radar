@@ -56,6 +56,7 @@ BACKGROUND_ERR_LOG_FILES = {
 WEBSITE_CHECK_REFRESH_SECONDS = 24 * 60 * 60
 RUNTIME_FINGERPRINT_PATTERNS = ("src/alpha_listener/**/*.py", "scripts/*.ps1")
 RUNTIME_FINGERPRINT_REQUIRED_ROLES = {"scanner", "classifier", "enricher", "combined"}
+RUNTIME_INTERRUPT_ROLES = ("scanner", "classifier", "enricher", "combined", "maintenance", "replay")
 EXPORT_FIELDS = [
     "project_key",
     "label",
@@ -220,6 +221,13 @@ def build_parser() -> argparse.ArgumentParser:
     recover = sub.add_parser("recover-processing", help="Move processing enrichment reservations back to retry")
     add_workspace_chain_args(recover)
     recover.add_argument("--older-than-minutes", type=int, default=0)
+
+    runtime_interrupt = sub.add_parser("runtime-interrupt", help="Mark a running runtime role as intentionally interrupted")
+    add_workspace_chain_args(runtime_interrupt)
+    runtime_interrupt.add_argument("--role", choices=RUNTIME_INTERRUPT_ROLES, required=True)
+    runtime_interrupt.add_argument("--reason", default="background_stop")
+    runtime_interrupt.add_argument("--pid", type=int, default=None)
+    runtime_interrupt.add_argument("--force", action="store_true", help="Write the interruption even if the role is not currently running")
 
     requeue = sub.add_parser("requeue", help="Move completed enrichments back to retry for recalibration")
     add_workspace_chain_args(requeue)
@@ -422,6 +430,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "recover-processing":
         print_json(handle_recover_processing(settings, args))
+        return 0
+
+    if args.command == "runtime-interrupt":
+        print_json(handle_runtime_interrupt(settings, args))
         return 0
 
     if args.command == "requeue":
@@ -1548,6 +1560,34 @@ def handle_recover_processing(settings: Settings, args: argparse.Namespace) -> d
                 },
             )
         return result
+    finally:
+        store.close()
+
+
+def handle_runtime_interrupt(settings: Settings, args: argparse.Namespace) -> dict[str, Any]:
+    role = str(args.role)
+    store = Store(settings.db_path, settings.data_dir)
+    try:
+        runtime = store.runtime_status()
+        state = (runtime.get("roles") or {}).get(role) or {}
+        current_status = str(state.get("last_cycle_status") or "")
+        should_interrupt = bool(getattr(args, "force", False)) or current_status == "running"
+        if not should_interrupt:
+            return {"interrupted": False, "role": role, "current_status": current_status or None}
+
+        payload: dict[str, Any] = {
+            "command": "runtime-interrupt",
+            "reason": str(getattr(args, "reason", "") or "background_stop"),
+            "interrupted_status": current_status or None,
+            "chain": settings.chain_slug,
+            "chainid": settings.chainid,
+            "chain_name": settings.chain_name,
+        }
+        pid = getattr(args, "pid", None)
+        if pid is not None:
+            payload["pid"] = int(pid)
+        record = store.record_cycle_interrupted(payload, role=role)
+        return {"interrupted": True, "role": role, "record": record}
     finally:
         store.close()
 

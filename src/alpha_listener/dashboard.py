@@ -578,7 +578,7 @@ def matched_cycle_durations(store: Store) -> list[tuple[datetime, datetime]]:
         """
         SELECT created_at, event_type, payload_json
         FROM project_events
-        WHERE event_type IN ('cycle_started', 'cycle_finished', 'cycle_failed')
+        WHERE event_type IN ('cycle_started', 'cycle_finished', 'cycle_failed', 'cycle_interrupted')
         ORDER BY id ASC
         LIMIT 1000
         """
@@ -597,7 +597,7 @@ def matched_cycle_durations(store: Store) -> list[tuple[datetime, datetime]]:
         event_type = str(row["event_type"])
         if event_type == "cycle_started":
             starts[role] = dt
-        elif event_type in {"cycle_finished", "cycle_failed"} and role in starts:
+        elif event_type in {"cycle_finished", "cycle_failed", "cycle_interrupted"} and role in starts:
             durations.append((starts.pop(role), dt))
     return durations[-200:]
 

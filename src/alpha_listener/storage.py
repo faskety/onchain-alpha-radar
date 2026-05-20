@@ -292,6 +292,17 @@ class Store:
         self.append_event(event_type, None, record)
         return record
 
+    def record_cycle_interrupted(self, payload: dict[str, Any], role: str = "default") -> dict[str, Any]:
+        cycle_role = normalize_cycle_role(role)
+        prefix = f"last_cycle_{cycle_role}_"
+        finished_at = utc_now()
+        record = {"role": cycle_role, "finished_at": finished_at, "status": "interrupted", **payload}
+        self.set_meta(f"{prefix}finished_at", finished_at)
+        self.set_meta(f"{prefix}status", "interrupted")
+        self.set_meta_json(f"{prefix}result_json", record)
+        self.append_event("cycle_interrupted", None, record)
+        return record
+
     def runtime_status(self) -> dict[str, Any]:
         role_rows = self.conn.execute(
             """

@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
+$env:PYTHONPATH = Join-Path $root "src"
 $pidFile = Join-Path $root "data\alpha-classifier.pid"
 
 if (-not (Test-Path $pidFile)) {
@@ -34,6 +35,7 @@ $children = Get-CimInstance Win32_Process | Where-Object {
   $_.ParentProcessId -eq $process.Id -or
   ($_.Name -eq "python.exe" -and $_.CommandLine -match "alpha_listener\.cli classify-backlog" -and $_.CommandLine -match "ether-onchain-alpha-listen")
 }
+python -m alpha_listener.cli runtime-interrupt --workspace $root --role classifier --reason background_stop --pid $process.Id | Out-Null
 foreach ($child in $children) {
   Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
 }
