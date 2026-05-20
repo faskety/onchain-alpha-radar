@@ -2,7 +2,7 @@ param(
   [string[]]$Chains = @("base", "bsc"),
   [int]$ScanMaxBlocks = 0,
   [int]$BaseScanMaxBlocks = 30,
-  [int]$BscScanMaxBlocks = 0,
+  [int]$BscScanMaxBlocks = 30,
   [int]$MaxCatchupBatches = 30,
   [int]$ClassifyLimit = 50,
   [int]$EnrichLimit = 10,
@@ -45,6 +45,35 @@ function Get-ChainScanMaxBlocks {
     return $BscScanMaxBlocks
   }
   return 0
+}
+
+function Invoke-ChainPostScan {
+  param([string]$Chain)
+
+  if ($ScanOnly) {
+    return
+  }
+
+  Write-Output "[$Chain] classify"
+  python -m alpha_listener.cli classify-backlog `
+    --workspace $root `
+    --chain $Chain `
+    --limit $ClassifyLimit
+
+  if ($NoTwitter) {
+    return
+  }
+
+  Write-Output "[$Chain] enrich"
+  python -m alpha_listener.cli once `
+    --workspace $root `
+    --chain $Chain `
+    --max-blocks 0 `
+    --enrich-limit $EnrichLimit `
+    --report-limit $ReportLimit `
+    --verify-websites-limit $WebsiteVerifyLimit `
+    --backfill-website-twitter-limit $WebsiteTwitterBackfillLimit `
+    --backfill-source-urls-limit $SourceUrlBackfillLimit
 }
 
 $Chains = @(Normalize-Chains -Values $Chains)
@@ -90,36 +119,11 @@ for ($catchupBatch = 0; $catchupBatch -lt $scanRounds; $catchupBatch += 1) {
     if ($remaining -gt 0) {
       $anyRemaining = $true
     }
+
+    Invoke-ChainPostScan -Chain $chain
   }
 
   if (-not $anyRemaining) {
     break
   }
-}
-
-foreach ($chain in $Chains) {
-  if ($ScanOnly) {
-    continue
-  }
-
-  Write-Output "[$chain] classify"
-  python -m alpha_listener.cli classify-backlog `
-    --workspace $root `
-    --chain $chain `
-    --limit $ClassifyLimit
-
-  if ($NoTwitter) {
-    continue
-  }
-
-  Write-Output "[$chain] enrich"
-  python -m alpha_listener.cli once `
-    --workspace $root `
-    --chain $chain `
-    --max-blocks 0 `
-    --enrich-limit $EnrichLimit `
-    --report-limit $ReportLimit `
-    --verify-websites-limit $WebsiteVerifyLimit `
-    --backfill-website-twitter-limit $WebsiteTwitterBackfillLimit `
-    --backfill-source-urls-limit $SourceUrlBackfillLimit
 }

@@ -3,7 +3,7 @@ param(
   [int]$IntervalSeconds = 1800,
   [int]$ScanMaxBlocks = 0,
   [int]$BaseScanMaxBlocks = 30,
-  [int]$BscScanMaxBlocks = 0,
+  [int]$BscScanMaxBlocks = 30,
   [int]$MaxCatchupBatches = 30,
   [int]$ClassifyLimit = 50,
   [int]$EnrichLimit = 10,

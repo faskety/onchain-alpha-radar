@@ -13,7 +13,7 @@ param(
   [int]$MultichainIntervalSeconds = 1800,
   [int]$MultichainScanMaxBlocks = 0,
   [int]$MultichainBaseScanMaxBlocks = 30,
-  [int]$MultichainBscScanMaxBlocks = 0,
+  [int]$MultichainBscScanMaxBlocks = 30,
   [int]$MultichainMaxCatchupBatches = 30,
   [int]$MultichainEnrichLimit = 10,
   [switch]$SkipDashboard,
