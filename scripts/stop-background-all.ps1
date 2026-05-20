@@ -1,3 +1,7 @@
+param(
+  [switch]$SkipDashboard
+)
+
 $ErrorActionPreference = "Stop"
 
 Write-Output "stopping scanner"
@@ -11,5 +15,10 @@ Write-Output "stopping enricher"
 
 Write-Output "stopping multichain"
 & (Join-Path $PSScriptRoot "stop-background-multichain.ps1")
+
+if (-not $SkipDashboard) {
+  Write-Output "stopping dashboard"
+  & (Join-Path $PSScriptRoot "stop-background-dashboard.ps1")
+}
 
 Write-Output "background workers stop requested"

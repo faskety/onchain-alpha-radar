@@ -13,7 +13,12 @@ param(
   [int]$MultichainIntervalSeconds = 1800,
   [int]$MultichainScanMaxBlocks = 0,
   [int]$MultichainMaxCatchupBatches = 10,
-  [int]$MultichainEnrichLimit = 10
+  [int]$MultichainEnrichLimit = 10,
+  [switch]$SkipDashboard,
+  [string]$DashboardHost = "127.0.0.1",
+  [int]$DashboardPort = 8765,
+  [int]$DashboardLimit = 100,
+  [int]$DashboardRefreshSeconds = 15
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +58,15 @@ if ($WithMultichain) {
     -ScanMaxBlocks $MultichainScanMaxBlocks `
     -MaxCatchupBatches $MultichainMaxCatchupBatches `
     -EnrichLimit $MultichainEnrichLimit
+}
+
+if (-not $SkipDashboard) {
+  Write-Output "starting dashboard"
+  & (Join-Path $PSScriptRoot "start-background-dashboard.ps1") `
+    -ListenHost $DashboardHost `
+    -Port $DashboardPort `
+    -Limit $DashboardLimit `
+    -RefreshSeconds $DashboardRefreshSeconds
 }
 
 Write-Output "background workers requested"
