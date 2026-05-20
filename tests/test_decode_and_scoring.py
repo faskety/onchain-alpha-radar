@@ -624,6 +624,7 @@ class DecodeAndScoringTests(unittest.TestCase):
                     for _address in addresses
                 }
 
+        progress_events = []
         discovered = discover_activity_contracts_in_range(
             FakeClient(),
             start_block=100,
@@ -635,11 +636,28 @@ class DecodeAndScoringTests(unittest.TestCase):
             all_transfer_log_max_span=5,
             custom_event_topics=[],
             classify=False,
+            progress=progress_events.append,
         )
         self.assertEqual([item["address"] for item in discovered], [active])
         self.assertEqual(discovered[0]["discovery_source"], "activity_mint")
         self.assertIn("activity_transfer", discovered[0]["related"]["sources"])
         self.assertEqual(discovered[0]["related"]["activity_observations"], 4)
+        self.assertTrue(
+            any(
+                event.get("event") == "activity_scan_stage"
+                and event.get("stage") == "all_transfers"
+                and event.get("status") == "progress"
+                for event in progress_events
+            )
+        )
+        self.assertTrue(
+            any(
+                event.get("stage") == "creation_probe"
+                and event.get("status") == "finished"
+                and event.get("creation_rows") == 1
+                for event in progress_events
+            )
+        )
 
     def test_activity_discovery_can_count_custom_event_topics(self):
         active = "0x1111111111111111111111111111111111111111"

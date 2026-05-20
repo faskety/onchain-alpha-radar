@@ -2844,6 +2844,7 @@ def run_cycle(
                     custom_event_topics=split_csv_values(getattr(settings, "activity_custom_event_topics", "")),
                     custom_event_log_max_span=getattr(settings, "activity_custom_event_log_span", 1000),
                     classify=False,
+                    progress=cycle_progress,
                 )
             ]
             for contract in contracts:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from .classify import classify_contract
 from .etherscan import EtherscanClient, hex_to_int
@@ -296,6 +296,8 @@ def iter_logs_safely(
     topic2: str | None = None,
     address: str | None = None,
     max_span: int = 20,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+    progress_stage: str | None = None,
 ):
     stack = [(start_block, end_block)]
     while stack:
@@ -313,6 +315,15 @@ def iter_logs_safely(
             stack.append((mid + 1, end))
             stack.append((start, mid))
             continue
+        if progress:
+            progress(
+                {
+                    "stage": progress_stage or "logs",
+                    "from_block": start,
+                    "to_block": end,
+                    "logs": len(chunk),
+                }
+            )
         yield from chunk
 
 
@@ -330,6 +341,7 @@ def discover_activity_contracts_in_range(
     custom_event_topics: list[str] | None = None,
     custom_event_log_max_span: int = 1000,
     classify: bool = True,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     activity = collect_activity_stats(
         client,
@@ -341,6 +353,7 @@ def discover_activity_contracts_in_range(
         all_transfer_log_max_span=all_transfer_log_max_span,
         custom_event_topics=custom_event_topics,
         custom_event_log_max_span=custom_event_log_max_span,
+        progress=progress,
     )
     active = [
         stat
@@ -359,7 +372,22 @@ def discover_activity_contracts_in_range(
     if probe_limit > 0:
         probe_limit = min(len(active), max(probe_limit, probe_limit * 10))
     selected = active[:probe_limit]
+    emit_activity_progress(
+        progress,
+        "creation_probe",
+        "started",
+        active_candidates=len(active),
+        selected_candidates=len(selected),
+    )
     creation = client.get_contract_creation([str(stat["address"]) for stat in selected])
+    emit_activity_progress(
+        progress,
+        "creation_probe",
+        "finished",
+        active_candidates=len(active),
+        selected_candidates=len(selected),
+        creation_rows=len(creation),
+    )
     discovered: list[dict[str, Any]] = []
     for stat in selected:
         address = str(stat["address"])
@@ -375,6 +403,14 @@ def discover_activity_contracts_in_range(
         discovered.append(build_activity_contract(client, stat, creation_meta, created_block, classify=classify))
         if len(discovered) >= max(0, max_candidates):
             break
+    emit_activity_progress(
+        progress,
+        "candidate_filter",
+        "finished",
+        active_candidates=len(active),
+        selected_candidates=len(selected),
+        discovered_contracts=len(discovered),
+    )
     return discovered
 
 
@@ -388,8 +424,39 @@ def collect_activity_stats(
     all_transfer_log_max_span: int = 5,
     custom_event_topics: list[str] | None = None,
     custom_event_log_max_span: int = 1000,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, dict[str, Any]]:
     stats: dict[str, dict[str, Any]] = {}
+    stage_counts: dict[str, dict[str, int]] = {}
+
+    def record_stage_chunk(payload: dict[str, Any]) -> None:
+        stage = str(payload.get("stage") or "logs")
+        counter = stage_counts.setdefault(stage, {"chunks": 0, "logs": 0})
+        counter["chunks"] += 1
+        counter["logs"] += int(payload.get("logs") or 0)
+        chunks = counter["chunks"]
+        logs = counter["logs"]
+        if chunks == 1 or chunks % 10 == 0 or int(payload.get("logs") or 0) > 0:
+            emit_activity_progress(
+                progress,
+                stage,
+                "progress",
+                chunks=chunks,
+                logs=logs,
+                from_block=payload.get("from_block"),
+                to_block=payload.get("to_block"),
+            )
+
+    def finish_stage(stage: str) -> None:
+        counter = stage_counts.get(stage, {"chunks": 0, "logs": 0})
+        emit_activity_progress(
+            progress,
+            stage,
+            "finished",
+            chunks=counter["chunks"],
+            logs=counter["logs"],
+            active_contracts=len(stats),
+        )
 
     def stat_for(address: str) -> dict[str, Any]:
         return stats.setdefault(
@@ -457,57 +524,76 @@ def collect_activity_stats(
             stat["first_timestamp"] = timestamp if stat.get("first_timestamp") is None else min(int(stat["first_timestamp"]), timestamp)
             stat["last_timestamp"] = timestamp if stat.get("last_timestamp") is None else max(int(stat["last_timestamp"]), timestamp)
 
-    for log in fetch_logs_safely(
+    emit_activity_progress(progress, "mint_transfers", "started")
+    for log in iter_logs_safely(
         client,
         start_block,
         end_block,
         TRANSFER_TOPIC,
         topic1=ZERO_TOPIC,
         max_span=max(1, transfer_log_max_span),
+        progress=record_stage_chunk,
+        progress_stage="mint_transfers",
     ):
         add_activity(log, "activity_mint")
+    finish_stage("mint_transfers")
 
     if include_all_transfers:
+        emit_activity_progress(progress, "all_transfers", "started")
         for log in iter_logs_safely(
             client,
             start_block,
             end_block,
             TRANSFER_TOPIC,
             max_span=max(1, all_transfer_log_max_span),
+            progress=record_stage_chunk,
+            progress_stage="all_transfers",
         ):
             topics = log.get("topics") or []
             if len(topics) > 1 and str(topics[1]).lower() == ZERO_TOPIC:
                 continue
             add_activity(log, "activity_transfer")
+        finish_stage("all_transfers")
 
+    emit_activity_progress(progress, "erc1155_mints", "started")
     for topic in (TRANSFER_SINGLE_TOPIC, TRANSFER_BATCH_TOPIC):
-        for log in fetch_logs_safely(
+        for log in iter_logs_safely(
             client,
             start_block,
             end_block,
             topic,
             topic2=ZERO_TOPIC,
             max_span=max(1, transfer_log_max_span * 2),
+            progress=record_stage_chunk,
+            progress_stage="erc1155_mints",
         ):
             add_activity(log, "activity_erc1155_mint")
+    finish_stage("erc1155_mints")
 
+    emit_activity_progress(progress, "custom_events", "started")
     for topic in normalize_event_topics(custom_event_topics):
-        for log in fetch_logs_safely(
+        for log in iter_logs_safely(
             client,
             start_block,
             end_block,
             topic,
             max_span=max(1, custom_event_log_max_span),
+            progress=record_stage_chunk,
+            progress_stage="custom_events",
         ):
             add_activity(log, "activity_custom_event")
+    finish_stage("custom_events")
 
+    emit_activity_progress(progress, "dex_v2", "started")
     for log in fetch_logs_safely(client, start_block, end_block, UNISWAP_V2_PAIR_CREATED_TOPIC, max_span=1000):
         pair_block = parse_block_number(log.get("blockNumber")) or start_block
         swap_count = dex_swap_count(client, pair_block, end_block, UNISWAP_V2_SWAP_TOPIC, data_word_to_address(str(log.get("data") or ""), 0))
         for candidate in parse_uniswap_v2_log(log, set()):
             candidate["block_number"] = parse_block_number(log.get("blockNumber"))
             add_dex_candidate(candidate, swap_count=swap_count)
+    emit_activity_progress(progress, "dex_v2", "finished", active_contracts=len(stats))
 
+    emit_activity_progress(progress, "dex_v3", "started")
     for log in fetch_logs_safely(client, start_block, end_block, UNISWAP_V3_POOL_CREATED_TOPIC, max_span=1000):
         pair_block = parse_block_number(log.get("blockNumber")) or start_block
         pool = data_word_to_address(str(log.get("data") or ""), 1)
@@ -515,8 +601,10 @@ def collect_activity_stats(
         for candidate in parse_uniswap_v3_log(log, set()):
             candidate["block_number"] = parse_block_number(log.get("blockNumber"))
             add_dex_candidate(candidate, swap_count=swap_count)
+    emit_activity_progress(progress, "dex_v3", "finished", active_contracts=len(stats))
 
     if chain_slug != "bsc":
+        emit_activity_progress(progress, "dex_v4", "started")
         for log in fetch_logs_safely(
             client,
             start_block,
@@ -528,7 +616,9 @@ def collect_activity_stats(
             for candidate in parse_uniswap_v4_log(log, set()):
                 candidate["block_number"] = parse_block_number(log.get("blockNumber"))
                 add_dex_candidate(candidate)
+        emit_activity_progress(progress, "dex_v4", "finished", active_contracts=len(stats))
 
+        emit_activity_progress(progress, "balancer_v2", "started")
         for log in fetch_logs_safely(
             client,
             start_block,
@@ -540,8 +630,26 @@ def collect_activity_stats(
             for candidate in parse_balancer_v2_tokens_registered_log(log, set()):
                 candidate["block_number"] = parse_block_number(log.get("blockNumber"))
                 add_dex_candidate(candidate)
+        emit_activity_progress(progress, "balancer_v2", "finished", active_contracts=len(stats))
 
     return stats
+
+
+def emit_activity_progress(
+    progress: Callable[[dict[str, Any]], None] | None,
+    stage: str,
+    status: str,
+    **extra: Any,
+) -> None:
+    if not progress:
+        return
+    payload = {
+        "event": "activity_scan_stage",
+        "stage": stage,
+        "status": status,
+    }
+    payload.update({key: value for key, value in extra.items() if value is not None})
+    progress(payload)
 
 
 def dex_swap_count(
