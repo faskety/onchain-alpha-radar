@@ -32,12 +32,12 @@ function Mark-RuntimeInterrupted {
   param(
     [string]$Chain,
     [string]$Role,
-    [int]$Pid
+    [int]$RuntimePid
   )
   if (-not $Chain -or -not $Role) {
     return
   }
-  python -m alpha_listener.cli runtime-interrupt --workspace $root --chain $Chain --role $Role --reason background_stop --pid $Pid | Out-Null
+  python -m alpha_listener.cli runtime-interrupt --workspace $root --chain $Chain --role $Role --reason background_stop --pid $RuntimePid | Out-Null
 }
 
 if (-not (Test-Path $pidFile)) {
@@ -61,7 +61,7 @@ if ($process) {
   foreach ($child in $children) {
     $role = Get-AlphaCommandRole -CommandLine ([string]$child.CommandLine)
     $chain = Get-AlphaCommandChain -CommandLine ([string]$child.CommandLine)
-    Mark-RuntimeInterrupted -Chain $chain -Role $role -Pid ([int]$child.ProcessId)
+    Mark-RuntimeInterrupted -Chain $chain -Role $role -RuntimePid ([int]$child.ProcessId)
     Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
   }
   Stop-Process -Id $process.Id -Force
