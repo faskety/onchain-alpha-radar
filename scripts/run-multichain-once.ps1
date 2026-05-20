@@ -16,10 +16,17 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:PYTHONPATH = Join-Path $root "src"
 
-foreach ($chain in $Chains) {
-  Write-Output "[$chain] scan"
-  $catchupBatch = 0
-  do {
+$remainingByChain = @{}
+$scanRounds = [Math]::Max(1, $MaxCatchupBatches)
+for ($catchupBatch = 0; $catchupBatch -lt $scanRounds; $catchupBatch += 1) {
+  $anyRemaining = $false
+  foreach ($chain in $Chains) {
+    if ($catchupBatch -gt 0 -and -not ($remainingByChain[$chain])) {
+      continue
+    }
+
+    $batchNumber = $catchupBatch + 1
+    Write-Output "[$chain] scan batch $batchNumber/$scanRounds"
     $scanArgs = @(
       "--workspace", $root,
       "--chain", $chain,
@@ -40,9 +47,18 @@ foreach ($chain in $Chains) {
     } catch {
       $remaining = 0
     }
-    $catchupBatch += 1
-  } while ($remaining -gt 0 -and $catchupBatch -lt $MaxCatchupBatches)
+    $remainingByChain[$chain] = $remaining -gt 0
+    if ($remaining -gt 0) {
+      $anyRemaining = $true
+    }
+  }
 
+  if (-not $anyRemaining) {
+    break
+  }
+}
+
+foreach ($chain in $Chains) {
   if ($ScanOnly) {
     continue
   }
